@@ -1,0 +1,1421 @@
+-- =====================================================================
+-- demo_member_interest_shb_only.sql
+-- همه‌چیز زیر شِمای SHB، به‌صورت مستقل: جداول، سکانس‌ها، تریگرها،
+-- تایپ‌ها، فانکشن کامل، دیتای نمونه، و دو گزارش نمونه.
+-- =====================================================================
+
+whenever sqlerror continue
+
+prompt === Safe drop (function/types) ===
+begin execute immediate 'drop function SHB.FNC_GET_MEMBER_INTEREST_TBL'; exception when others then null; end;
+/
+begin execute immediate 'drop type SHB.MEMBER_STATUS_SUMMARY_TBL force'; exception when others then null; end;
+/
+begin execute immediate 'drop type SHB.MEMBER_STATUS_SUMMARY force'; exception when others then null; end;
+/
+
+prompt === Safe drop (triggers) ===
+begin for tr in (
+  select trigger_name from all_triggers
+  where owner='SHB' and trigger_name in (
+    'TBL_ORGAN_PAY_DTL_TRG','TBL_MEMBER_PAY_PERIODS_TRG',
+    'TBL_CONDITIONS_TRG','TBL_CONDITION_DTL_BI','TBL_CONDITION_DTL_TRG','TR_CONDITION_DTL_DELETE'
+  )
+) loop execute immediate 'drop trigger SHB.'||tr.trigger_name; end loop; end;
+/
+
+prompt === Safe drop (sequences) ===
+begin for s in (
+  select sequence_name from all_sequences where sequence_owner='SHB' and sequence_name in (
+    'TBL_MEMBER_PAY_PERIODS_SEQ','TBL_ORGAN_PAY_DTL_SEQ','TBL_CONDITIONS_SEQ',
+    'TBL_CONDITIONS_LOG_SEQ','TBL_CONDITION_DTL_SEQ','TBL_CONDITION_DTL_LOG_SEQ','SEQ_CONDITION_DTL'
+  )
+) loop execute immediate 'drop sequence SHB.'||s.sequence_name; end loop; end;
+/
+
+prompt === Safe drop (tables) ===
+begin for t in (
+  select table_name from all_tables where owner='SHB' and table_name in (
+    'TBL_MUMS_PERSON','TBL_MEMBER_PAY_PERIODS','TBL_ORGAN_PAY_DTL','TBL_EXIT_HISTORY',
+    'TBL_CONDITIONS','TBL_CONDITIONS_LOG','TBL_CONDITION_DTL','TBL_CONDITION_DTL_LOG',
+    'TBL_FISCAL_YEAR'
+  )
+) loop execute immediate 'drop table SHB.'||t.table_name||' cascade constraints purge'; end loop; end;
+/
+
+prompt === Support package stub (for triggers) ===
+begin execute immediate 'drop package SHB.SHB_SEC'; exception when others then null; end;
+/
+create or replace package SHB.SHB_SEC as
+  function get_user_id(p in number)   return number;
+  function get_user_id(p in varchar2) return varchar2;
+end;
+/
+create or replace package body SHB.SHB_SEC as
+  function get_user_id(p in number)   return number   is begin return nvl(p,1); end;
+  function get_user_id(p in varchar2) return varchar2 is begin return nvl(p,''SYSTEM''); end;
+end;
+/
+
+prompt === Sequences ===
+create sequence SHB.TBL_MEMBER_PAY_PERIODS_SEQ start with 1 increment by 1 nocache;
+create sequence SHB.TBL_ORGAN_PAY_DTL_SEQ      start with 1 increment by 1 nocache;
+create sequence SHB.TBL_CONDITIONS_SEQ         start with 1 increment by 1 nocache;
+create sequence SHB.TBL_CONDITIONS_LOG_SEQ     start with 1 increment by 1 nocache;
+create sequence SHB.TBL_CONDITION_DTL_SEQ      start with 1 increment by 1 nocache;
+create sequence SHB.TBL_CONDITION_DTL_LOG_SEQ  start with 1 increment by 1 nocache;
+create sequence SHB.SEQ_CONDITION_DTL          start with 1 increment by 1 nocache;
+
+prompt === Tables ===
+create table SHB.TBL_MUMS_PERSON (
+  ID             number,
+  EMP_CODE       varchar2(20),
+  NATIONAL_CODE  varchar2(10),
+  FNAME          varchar2(50),
+  LNAME          varchar2(50),
+  FATHER_NAME    varchar2(50),
+  BIRTHDATE      date,
+  BIRTHCITY_ID   number,
+  GENDER         number(1,0),
+  KHEDMAT        varchar2(20),
+  MARITAL_STATUS number(1,0),
+  BLOOD          varchar2(20),
+  TEL_NUM        varchar2(20),
+  MOBILE_NUM     varchar2(20),
+  ADDRESS        varchar2(500),
+  PERSON_IMAGE   blob,
+  EDUCATE_DEGREE varchar2(20),
+  EDUCATE_FIELD  varchar2(500),
+  EMAIL          varchar2(20),
+  WORKPLACE      varchar2(20),
+  CREATED        date,
+  CREATED_BY     varchar2(50),
+  UPDATED        date,
+  UPDATED_BY     varchar2(50),
+  STATUS         number,
+  APP_ID         number,
+  POSTAL_CODE    varchar2(15),
+  IMAGE_MIME_TYPE varchar2(200),
+  IMAGE_FILE      varchar2(200),
+  FILE_BLOB_DATE  date,
+  IMAGE_FILE_CHARSET varchar2(255),
+  IS_ACTIVE      number default 1,
+  CHILD_COUNT    number,
+  SARBAZI        number(1,0),
+  REG_ID         number,
+  USER_TYPE      number default 0,
+  REGISTER_DATE  date,
+  AELE_COUNT     number,
+  GROUP_CODE     number,
+  SHENASNAMEH_NUM varchar2(20),
+  PASS_NUM        varchar2(30),
+  CONFIRMED_DOCS  number default 0,
+  PROV_ID         number,
+  CITY_ID         number,
+  DESCRIPTION     varchar2(1000),
+  DEATH_DATE      date
+);
+
+create table SHB.TBL_ORGAN_PAY_DTL (
+  ID          number,
+  AMOUNT      number,
+  NATION_CODE varchar2(20),
+  ORGAN_NAME  varchar2(150),
+  CREATED     date,
+  CREATED_BY  number,
+  UPDATED     date,
+  UPDATED_BY  number,
+  IS_ACTIVE   number,
+  DESCRIPTION varchar2(1000),
+  ORG_PERCENT number,
+  PARENT_ID   number,
+  FISCAL_YEAR varchar2(10),
+  ORGAN_CODE  varchar2(50)
+);
+
+create table SHB.TBL_MEMBER_PAY_PERIODS (
+  ID           number,
+  PERSON_ID    number,
+  FOLDER_ID    number,
+  AMOUNT       number,
+  PAY_DATE     date,
+  AMOUNT_YEAR  number,
+  CREATED      date,
+  CREATED_BY   number,
+  UPDATED      date,
+  UPDATED_BY   number,
+  IS_ACTIVE    number default 1,
+  REFERENCE_ID varchar2(50),
+  STATUS       number,
+  AMOUNT_PAID  number,
+  DESCRIPTION  varchar2(1000),
+  CODE_GROUP_ID number
+);
+create unique index SHB.tbl_member_pay_periods_PK on SHB.TBL_MEMBER_PAY_PERIODS(ID);
+
+create table SHB.TBL_EXIT_HISTORY (
+  ID number,
+  PERSON_ID number,
+  USER_ID number,
+  EXIT_TYPE number(1,0),
+  CREATED date,
+  CREATED_BY number,
+  UPDATED date,
+  UPDATED_BY number,
+  IS_ACTIVE number(1,0) default 1,
+  STATUS number(1,0),
+  REGISTER_CODE number,
+  SEND_TO_DEPARTMENT number,
+  OK_MALI number,
+  OK_JAZB number,
+  SOUD_AMOUNT number,
+  SOUD_DOCUMENT blob,
+  SOUD_DATE date,
+  SOUD_DESC varchar2(255),
+  DESCRIPTION varchar2(1000),
+  IS_HEBEH number default 0,
+  HEBEH_AMOUNT number,
+  MEMBER_AMOUNT number,
+  ORG_AMOUNT number,
+  TOTAL_POSSIBLE_AMOUNT number
+);
+
+create table SHB.TBL_CONDITIONS (
+  ID number,
+  TITLE varchar2(500),
+  SERVICE_ID number,
+  IS_ACTIVE number,
+  CREATED date,
+  CREATED_BY varchar2(50),
+  UPDATED date,
+  UPDATED_BY varchar2(50),
+  DESCRIPTION varchar2(1000),
+  CODE number,
+  MEASURE_UNIT_ID number(38,0),
+  DATA_TYPE number
+);
+
+create table SHB.TBL_CONDITIONS_LOG (
+  LOG_ID number default SHB.TBL_CONDITIONS_LOG_SEQ.nextval,
+  ID number,
+  TITLE varchar2(500),
+  SERVICE_ID number,
+  IS_ACTIVE number,
+  CREATED date,
+  CREATED_BY varchar2(50),
+  UPDATED date,
+  UPDATED_BY varchar2(50),
+  DESCRIPTION varchar2(1000),
+  CODE number,
+  DATA_TYPE number,
+  MEASURE_UNIT_ID number(38,0),
+  LOG_TYPE char(1)
+);
+
+create table SHB.TBL_CONDITION_DTL (
+  ID number,
+  CONDITION_ID number,
+  MEMBER_GROUP_ID number,
+  FISCAL_YEAR_ID number,
+  IS_ACTIVE number default 1,
+  CREATED date,
+  CREATED_BY varchar2(50),
+  UPDATED date,
+  UPDATED_BY varchar2(50),
+  DESCRIPTION varchar2(1000),
+  CHAR_VALUE varchar2(100),
+  NUM_VALUE number,
+  START_DATE date,
+  BOOLEAN_VALUE number,
+  DAY_LIMIT number,
+  TITLE_DTL varchar2(250),
+  END_DATE date
+);
+
+create table SHB.TBL_CONDITION_DTL_LOG (
+  LOG_ID number,
+  ID number,
+  CONDITION_ID number,
+  MEMBER_GROUP_ID number,
+  FISCAL_YEAR_ID number,
+  IS_ACTIVE number,
+  CREATED date,
+  CREATED_BY varchar2(50),
+  UPDATED date,
+  UPDATED_BY varchar2(50),
+  DESCRIPTION varchar2(1000),
+  CHAR_VALUE varchar2(100),
+  NUM_VALUE number,
+  START_DATE date,
+  BOOLEAN_VALUE number,
+  DAY_LIMIT number,
+  TITLE_DTL varchar2(250),
+  END_DATE date,
+  LOG_TYPE char(1)
+);
+
+-- سال‌های مالی مورد نیاز
+create table SHB.TBL_FISCAL_YEAR (
+  ID number,
+  TITLE varchar2(10)
+);
+
+prompt === Triggers ===
+create or replace trigger SHB.TBL_ORGAN_PAY_DTL_TRG
+before insert or update on SHB.TBL_ORGAN_PAY_DTL
+for each row
+begin
+  if :new.ID is null then :new.ID := SHB.TBL_ORGAN_PAY_DTL_SEQ.nextval; end if;
+  if inserting then
+    :new.CREATED := sysdate;
+    :new.CREATED_BY := SHB_SEC.get_user_id(1);
+  elsif updating then
+    :new.UPDATED := sysdate;
+    :new.UPDATED_BY := SHB_SEC.get_user_id(1);
+  end if;
+end;
+/
+alter trigger SHB.TBL_ORGAN_PAY_DTL_TRG enable;
+/
+
+create or replace trigger SHB.TBL_MEMBER_PAY_PERIODS_TRG
+before insert or update on SHB.TBL_MEMBER_PAY_PERIODS
+for each row
+begin
+  if :new.ID is null then :new.ID := SHB.TBL_MEMBER_PAY_PERIODS_SEQ.nextval; end if;
+  if inserting then
+    :new.CREATED := sysdate;
+    :new.CREATED_BY := SHB_SEC.get_user_id(1);
+  elsif updating then
+    :new.UPDATED := sysdate;
+    :new.UPDATED_BY := SHB_SEC.get_user_id(1);
+  end if;
+end;
+/
+alter trigger SHB.TBL_MEMBER_PAY_PERIODS_TRG enable;
+/
+
+create or replace trigger SHB.TBL_CONDITIONS_TRG
+before insert or update on SHB.TBL_CONDITIONS
+for each row
+begin
+  if inserting then
+    if :new.ID is null then :new.ID := SHB.TBL_CONDITIONS_SEQ.nextval; end if;
+    :new.CREATED := sysdate;
+    :new.CREATED_BY := nvl(:new.CREATED_BY, 'SYSTEM');
+    :new.IS_ACTIVE := nvl(:new.IS_ACTIVE, 1);
+    insert into SHB.TBL_CONDITIONS_LOG
+      (ID,TITLE,SERVICE_ID,IS_ACTIVE,CREATED,CREATED_BY,UPDATED,UPDATED_BY,DESCRIPTION,CODE,DATA_TYPE,MEASURE_UNIT_ID,LOG_TYPE)
+    values
+      (:new.ID,:new.TITLE,:new.SERVICE_ID,:new.IS_ACTIVE,:new.CREATED,:new.CREATED_BY,:new.UPDATED,:new.UPDATED_BY,:new.DESCRIPTION,:new.CODE,:new.DATA_TYPE,:new.MEASURE_UNIT_ID,'I');
+  elsif updating then
+    :new.UPDATED := sysdate;
+    :new.UPDATED_BY := nvl(:new.UPDATED_BY, 'SYSTEM');
+    insert into SHB.TBL_CONDITIONS_LOG
+      (ID,TITLE,SERVICE_ID,IS_ACTIVE,CREATED,CREATED_BY,UPDATED,UPDATED_BY,DESCRIPTION,CODE,DATA_TYPE,MEASURE_UNIT_ID,LOG_TYPE)
+    values
+      (:new.ID,:new.TITLE,:new.SERVICE_ID,:new.IS_ACTIVE,:new.CREATED,:new.CREATED_BY,:new.UPDATED,:new.UPDATED_BY,:new.DESCRIPTION,:new.CODE,:new.DATA_TYPE,:new.MEASURE_UNIT_ID,'U');
+  end if;
+end;
+/
+alter trigger SHB.TBL_CONDITIONS_TRG enable;
+/
+
+create or replace trigger SHB.TBL_CONDITION_DTL_BI
+before insert on SHB.TBL_CONDITION_DTL
+for each row
+when (new.ID is null)
+begin
+  select SHB.SEQ_CONDITION_DTL.nextval into :new.ID from dual;
+end;
+/
+alter trigger SHB.TBL_CONDITION_DTL_BI enable;
+/
+
+create or replace trigger SHB.TBL_CONDITION_DTL_TRG
+before insert or update on SHB.TBL_CONDITION_DTL
+for each row
+declare
+  l_log_type char(1);
+begin
+  if inserting then
+    l_log_type := 'I';
+    :new.CREATED := sysdate;
+    :new.CREATED_BY := nvl(:new.CREATED_BY, 'SYSTEM');
+  elsif updating then
+    l_log_type := 'U';
+    :new.UPDATED := sysdate;
+    :new.UPDATED_BY := nvl(:new.UPDATED_BY, 'SYSTEM');
+  end if;
+
+  insert into SHB.TBL_CONDITION_DTL_LOG
+    (LOG_ID,ID,CONDITION_ID,MEMBER_GROUP_ID,FISCAL_YEAR_ID,IS_ACTIVE,CREATED,CREATED_BY,UPDATED,UPDATED_BY,DESCRIPTION,CHAR_VALUE,NUM_VALUE,START_DATE,BOOLEAN_VALUE,DAY_LIMIT,TITLE_DTL,END_DATE,LOG_TYPE)
+  values
+    (SHB.TBL_CONDITION_DTL_LOG_SEQ.nextval,:new.ID,:new.CONDITION_ID,:new.MEMBER_GROUP_ID,:new.FISCAL_YEAR_ID,:new.IS_ACTIVE,:new.CREATED,:new.CREATED_BY,:new.UPDATED,:new.UPDATED_BY,:new.DESCRIPTION,:new.CHAR_VALUE,:new.NUM_VALUE,:new.START_DATE,:new.BOOLEAN_VALUE,:new.DAY_LIMIT,:new.TITLE_DTL,:new.END_DATE,l_log_type);
+end;
+/
+alter trigger SHB.TBL_CONDITION_DTL_TRG enable;
+/
+
+create or replace trigger SHB.TR_CONDITION_DTL_DELETE
+before delete on SHB.TBL_CONDITION_DTL
+for each row
+begin
+  insert into SHB.TBL_CONDITION_DTL_LOG
+    (LOG_ID,ID,CONDITION_ID,MEMBER_GROUP_ID,FISCAL_YEAR_ID,IS_ACTIVE,CREATED,CREATED_BY,UPDATED,UPDATED_BY,DESCRIPTION,CHAR_VALUE,NUM_VALUE,START_DATE,BOOLEAN_VALUE,DAY_LIMIT,TITLE_DTL,END_DATE,LOG_TYPE)
+  values
+    (SHB.TBL_CONDITION_DTL_LOG_SEQ.nextval,:old.ID,:old.CONDITION_ID,:old.MEMBER_GROUP_ID,:old.FISCAL_YEAR_ID,:old.IS_ACTIVE,:old.CREATED,:old.CREATED_BY,:old.UPDATED,:old.UPDATED_BY,:old.DESCRIPTION,:old.CHAR_VALUE,:old.NUM_VALUE,:old.START_DATE,:old.BOOLEAN_VALUE,:old.DAY_LIMIT,:old.TITLE_DTL,:old.END_DATE,'D');
+end;
+/
+alter trigger SHB.TR_CONDITION_DTL_DELETE enable;
+/
+
+prompt === Types (independent) ===
+-- شیء خروجی تابع
+create or replace type SHB.MEMBER_STATUS_SUMMARY as object (
+  eligibility            number,
+  total_amount           number,
+  member_amount          number,
+  org_amount             number,
+  total_possible_amount  number,
+  total_interest_amount  number,
+  reason                 varchar2(400),
+  first_reg_year         number,
+  debug_info             clob,
+  yearly_interest        clob,   -- JSON (array of years + monthly details)
+  yearly_membership_amount clob, -- JSON summary
+  yearly_org_contribution  clob, -- JSON summary
+  rate                   clob,   -- JSON summary
+  exit_date              date
+);
+/
+create or replace type SHB.MEMBER_STATUS_SUMMARY_TBL as table of SHB.MEMBER_STATUS_SUMMARY;
+/
+
+prompt === Seed data (minimal but meaningful) ===
+-- شخص نمونه
+insert into SHB.TBL_MUMS_PERSON (ID,NATIONAL_CODE,IS_ACTIVE) values (9362,'1234567890',1);
+
+-- سال‌های مالی 1399..1404
+insert into SHB.TBL_FISCAL_YEAR (ID,TITLE) values (1,'1399');
+insert into SHB.TBL_FISCAL_YEAR (ID,TITLE) values (2,'1400');
+insert into SHB.TBL_FISCAL_YEAR (ID,TITLE) values (3,'1401');
+insert into SHB.TBL_FISCAL_YEAR (ID,TITLE) values (4,'1402');
+insert into SHB.TBL_FISCAL_YEAR (ID,TITLE) values (5,'1403');
+insert into SHB.TBL_FISCAL_YEAR (ID,TITLE) values (6,'1404');
+
+-- شرایط پایه
+insert into SHB.TBL_CONDITIONS (ID,TITLE,SERVICE_ID,IS_ACTIVE,CREATED,CREATED_BY,DATA_TYPE)
+values (10,'حداقل سنوات عضویت',24,1,sysdate,'SYSTEM',2);
+insert into SHB.TBL_CONDITIONS (ID,TITLE,SERVICE_ID,IS_ACTIVE,CREATED,CREATED_BY,DATA_TYPE)
+values (1033,'مبلغ حق عضویت',26,1,sysdate,'SYSTEM',2);
+insert into SHB.TBL_CONDITIONS (ID,TITLE,SERVICE_ID,IS_ACTIVE,CREATED,CREATED_BY,DATA_TYPE)
+values (1053,'درصد کمک سازمانی',26,1,sysdate,'SYSTEM',2);
+insert into SHB.TBL_CONDITIONS (ID,TITLE,SERVICE_ID,IS_ACTIVE,CREATED,CREATED_BY,DATA_TYPE)
+values (17,'نرخ سود',24,1,sysdate,'SYSTEM',2);
+
+-- جزئیات شرایط (نمونه‌های کافی برای اجرای تابع)
+-- حداقل سال‌ها
+insert into SHB.TBL_CONDITION_DTL (ID,CONDITION_ID,MEMBER_GROUP_ID,FISCAL_YEAR_ID,NUM_VALUE,IS_ACTIVE,CREATED,CREATED_BY)
+values (276,10,0,1,2,1,sysdate,'SYSTEM');
+
+-- نرخ سود (نمونه: 1399=13 ، 1402=4 ، پیش‌فرض=4)
+insert into SHB.TBL_CONDITION_DTL (ID,CONDITION_ID,FISCAL_YEAR_ID,NUM_VALUE,IS_ACTIVE,CREATED,CREATED_BY)
+values (242,17,3,13,1,sysdate,'SYSTEM');  -- 1401 = 13
+insert into SHB.TBL_CONDITION_DTL (ID,CONDITION_ID,FISCAL_YEAR_ID,NUM_VALUE,IS_ACTIVE,CREATED,CREATED_BY)
+values (243,17,4,4,1,sysdate,'SYSTEM');   -- 1402 = 4
+insert into SHB.TBL_CONDITION_DTL (ID,CONDITION_ID,FISCAL_YEAR_ID,NUM_VALUE,IS_ACTIVE,CREATED,CREATED_BY)
+values (279,17,1,4,1,sysdate,'SYSTEM');   -- default/fallback 4
+
+-- حق عضویت و درصد سازمانی نمونه برای چند سال
+insert into SHB.TBL_CONDITION_DTL (ID,CONDITION_ID,MEMBER_GROUP_ID,FISCAL_YEAR_ID,NUM_VALUE,IS_ACTIVE,CREATED,CREATED_BY)
+values (262,1033,1,5,810000,1,sysdate,'SYSTEM'); -- fee نمونه
+insert into SHB.TBL_CONDITION_DTL (ID,CONDITION_ID,MEMBER_GROUP_ID,FISCAL_YEAR_ID,NUM_VALUE,IS_ACTIVE,CREATED,CREATED_BY)
+values (263,1053,1,5,0,1,sysdate,'SYSTEM');     -- org% نمونه (0)
+-- fallback
+insert into SHB.TBL_CONDITION_DTL (ID,CONDITION_ID,FISCAL_YEAR_ID,NUM_VALUE,IS_ACTIVE,CREATED,CREATED_BY)
+values (277,1033,1,1000,1,sysdate,'SYSTEM');
+insert into SHB.TBL_CONDITION_DTL (ID,CONDITION_ID,FISCAL_YEAR_ID,NUM_VALUE,IS_ACTIVE,CREATED,CREATED_BY)
+values (278,1053,1,50,1,sysdate,'SYSTEM');
+
+-- پرداخت‌های عضو نمونه (P_ID=9362)
+insert into SHB.TBL_MEMBER_PAY_PERIODS (ID,PERSON_ID,AMOUNT,AMOUNT_PAID,PAY_DATE,AMOUNT_YEAR,IS_ACTIVE,CODE_GROUP_ID)
+values (2481,9362,1811828,1811828,to_date('21-NOV-20','DD-MON-RR'),1399,1,6);
+insert into SHB.TBL_MEMBER_PAY_PERIODS (ID,PERSON_ID,AMOUNT,AMOUNT_PAID,PAY_DATE,AMOUNT_YEAR,IS_ACTIVE,CODE_GROUP_ID)
+values (2482,9362,2588314,2588314,to_date('20-NOV-21','DD-MON-RR'),1400,1,6);
+insert into SHB.TBL_MEMBER_PAY_PERIODS (ID,PERSON_ID,AMOUNT,AMOUNT_PAID,PAY_DATE,AMOUNT_YEAR,IS_ACTIVE,CODE_GROUP_ID)
+values (2485,9362,810000,810000,to_date('05-JUL-22','DD-MON-RR'),1401,1,6);
+insert into SHB.TBL_MEMBER_PAY_PERIODS (ID,PERSON_ID,AMOUNT,AMOUNT_PAID,PAY_DATE,AMOUNT_YEAR,IS_ACTIVE,CODE_GROUP_ID)
+values (2484,9362,1620000,1620000,to_date('13-MAY-23','DD-MON-RR'),1402,1,6);
+insert into SHB.TBL_MEMBER_PAY_PERIODS (ID,PERSON_ID,AMOUNT,AMOUNT_PAID,PAY_DATE,AMOUNT_YEAR,IS_ACTIVE,CODE_GROUP_ID)
+values (2501,9362,810000,810000,to_date('21-MAR-23','DD-MON-RR'),1402,1,6);
+insert into SHB.TBL_MEMBER_PAY_PERIODS (ID,PERSON_ID,AMOUNT,AMOUNT_PAID,PAY_DATE,AMOUNT_YEAR,IS_ACTIVE,CODE_GROUP_ID)
+values (2483,9362,5124902,5124902,to_date('01-DEC-24','DD-MON-RR'),1403,1,6);
+
+-- خروجی نمونه
+insert into SHB.TBL_EXIT_HISTORY (ID,PERSON_ID,CREATED,IS_ACTIVE) values (1,9362,to_date('23-AUG-25','DD-MON-RR'),1);
+
+commit;
+
+prompt === Function (full body, schema-fixed to SHB.TBL_MUMS_PERSON) ===
+create or replace FUNCTION SHB.FNC_GET_MEMBER_INTEREST_TBL ( P_ID IN NUMBER )
+RETURN SHB.MEMBER_STATUS_SUMMARY_TBL
+AS
+  rec SHB.MEMBER_STATUS_SUMMARY_TBL;
+  V_ERRMSG VARCHAR2(4000);
+  V_NATIONAL_CODE VARCHAR2(20);
+  V_FIRST_REG_YEAR NUMBER := 0;
+  V_MINIMUM_YEARS NUMBER := 2;
+  V_TOTAL_YEARS NUMBER := 0;
+  V_YEARS_STR VARCHAR2(4000);
+  V_FULL_PAYMENT_EXISTS NUMBER := 0;
+  V_TOTAL_MEMBER_AMOUNT NUMBER := 0;
+  V_TOTAL_ORG_AMOUNT NUMBER := 0;
+  V_TOTAL_INTEREST_AMOUNT NUMBER := 0;
+  V_ELIGIBILITY NUMBER := 0;
+  V_REASON VARCHAR2(400);
+  V_DEBUG_INFO CLOB;
+  V_CURRENT_FISCAL_YEAR NUMBER;
+  V_EXIT_CREATED DATE;
+  V_BASE_DATE DATE;
+  V_PREV_YEAR NUMBER;
+  V_PREV_MONTH NUMBER;
+  V_LAST_DAY NUMBER;
+  V_CUTOFF_DATE DATE;
+  V_END_YEAR NUMBER;
+  V_END_MONTH NUMBER;
+  V_HAS_PAYMENT NUMBER := 0;
+  V_FISCAL_YEARS VARCHAR2(4000);
+  V_YEARLY_INTEREST_JSON CLOB;
+  V_YEARLY_MEMBERSHIP_AMOUNT_JSON CLOB;
+  V_YEARLY_ORG_CONTRIBUTION_JSON CLOB;
+  V_RATE_JSON CLOB;
+  V_MEMBER_GROUP_ID NUMBER := 0;
+
+  TYPE t_yearly_data IS TABLE OF CLOB INDEX BY PLS_INTEGER;
+  V_YEARLY_DATA t_yearly_data;
+  V_YEAR_COUNT NUMBER := 0;
+  cum_member NUMBER := 0;
+  cum_org NUMBER := 0;
+  V_LAST_MEMBERSHIP_FEE NUMBER := 0;
+  V_LAST_ORG_PERCENT NUMBER := 0; -- 0..1
+  V_LAST_RATE NUMBER := 4; -- درصد
+BEGIN
+  -- تقویم شمسی
+  EXECUTE IMMEDIATE 'ALTER SESSION SET NLS_CALENDAR=''PERSIAN''';
+  V_CURRENT_FISCAL_YEAR := TO_NUMBER(TO_CHAR(SYSDATE, 'YYYY', 'nls_calendar=persian'));
+
+  DBMS_LOB.CREATETEMPORARY(V_DEBUG_INFO, TRUE);
+  DBMS_LOB.APPEND(V_DEBUG_INFO, 'ورودی: P_ID=' || P_ID || ', تاریخ جاری: ' || TO_CHAR(SYSDATE, 'YYYY/MM/DD HH24:MI:SS', 'nls_calendar=persian') );
+
+  ----------------------------------------------------------------------
+  -- ۱) کد ملی
+  ----------------------------------------------------------------------
+  BEGIN
+    SELECT NATIONAL_CODE INTO V_NATIONAL_CODE
+    FROM SHB.TBL_MUMS_PERSON
+    WHERE ID = P_ID AND ROWNUM = 1;
+
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',کد ملی:' || NVL(V_NATIONAL_CODE, 'ناموجود'));
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      V_NATIONAL_CODE := NULL;
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',کد ملی:ناموجود');
+    WHEN OTHERS THEN
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطا در استخراج کد ملی:' || SQLERRM);
+      V_REASON := 'خطا در استخراج کد ملی: ' || SQLERRM;
+
+      SELECT SHB.MEMBER_STATUS_SUMMARY(
+        eligibility => 0,
+        total_amount => 0,
+        member_amount => 0,
+        org_amount => 0,
+        total_possible_amount => 0,
+        total_interest_amount => 0,
+        reason => V_REASON,
+        first_reg_year => 0,
+        debug_info => V_DEBUG_INFO,
+        yearly_interest => NULL,
+        yearly_membership_amount => NULL,
+        yearly_org_contribution => NULL,
+        rate => NULL,
+        exit_date => NULL
+      )
+      BULK COLLECT INTO rec FROM DUAL;
+
+      DBMS_LOB.FREETEMPORARY(V_DEBUG_INFO);
+      RETURN rec;
+  END;
+
+  ----------------------------------------------------------------------
+  -- ۲) حداقل سال‌ها (CONDITION_ID=10)
+  ----------------------------------------------------------------------
+  BEGIN
+    SELECT NVL(dtl.NUM_VALUE, 2), NVL(dtl.MEMBER_GROUP_ID, 0)
+      INTO V_MINIMUM_YEARS, V_MEMBER_GROUP_ID
+    FROM SHB.TBL_CONDITION_DTL dtl
+    WHERE dtl.CONDITION_ID = 10
+      AND dtl.FISCAL_YEAR_ID = (
+         SELECT MAX(FISCAL_YEAR_ID) FROM SHB.TBL_CONDITION_DTL WHERE CONDITION_ID = 10
+      )
+      AND ROWNUM = 1;
+
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',حداقل سال‌ها:' || V_MINIMUM_YEARS || ',شناسه گروه عضویت:' || V_MEMBER_GROUP_ID);
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      V_MINIMUM_YEARS := 2; V_MEMBER_GROUP_ID := 0;
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',حداقل سال‌ها:2 (پیش‌فرض),شناسه گروه عضویت:0');
+    WHEN OTHERS THEN
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطا در استخراج حداقل سال‌ها:' || SQLERRM);
+      V_MINIMUM_YEARS := 2; V_MEMBER_GROUP_ID := 0;
+  END;
+
+  ----------------------------------------------------------------------
+  -- ۳) اولین سال ثبت (از پرداخت‌های عضو و سازمان)
+  ----------------------------------------------------------------------
+  BEGIN
+    SELECT MIN(yy) INTO V_FIRST_REG_YEAR
+    FROM (
+      SELECT TO_NUMBER(TO_CHAR(PAY_DATE, 'YYYY', 'nls_calendar=persian')) yy
+      FROM SHB.TBL_MEMBER_PAY_PERIODS
+      WHERE PERSON_ID = P_ID AND PAY_DATE IS NOT NULL AND AMOUNT_PAID IS NOT NULL
+      UNION ALL
+      SELECT TO_NUMBER(TO_CHAR(CREATED, 'YYYY', 'nls_calendar=persian')) yy
+      FROM SHB.TBL_ORGAN_PAY_DTL
+      WHERE NATION_CODE = V_NATIONAL_CODE AND CREATED IS NOT NULL AND AMOUNT IS NOT NULL
+    );
+
+    IF V_FIRST_REG_YEAR IS NULL THEN
+      V_FIRST_REG_YEAR := 0;
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',سال اولین ثبت:ناموجود');
+    ELSE
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',سال اولین ثبت:' || V_FIRST_REG_YEAR);
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN
+      V_FIRST_REG_YEAR := 0;
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطا در استخراج سال اولین ثبت:' || SQLERRM);
+  END;
+
+  ----------------------------------------------------------------------
+  -- ۴) شمارش سال‌های دارای پرداخت
+  ----------------------------------------------------------------------
+  IF V_NATIONAL_CODE IS NOT NULL THEN
+    SELECT COUNT(DISTINCT yy),
+           LISTAGG(DISTINCT yy, ',') WITHIN GROUP (ORDER BY yy)
+      INTO V_TOTAL_YEARS, V_YEARS_STR
+    FROM (
+      SELECT TO_NUMBER(TO_CHAR(PAY_DATE, 'YYYY', 'nls_calendar=persian')) yy
+      FROM SHB.TBL_MEMBER_PAY_PERIODS
+      WHERE PERSON_ID = P_ID AND PAY_DATE IS NOT NULL AND AMOUNT_PAID IS NOT NULL
+      UNION
+      SELECT TO_NUMBER(TO_CHAR(CREATED, 'YYYY', 'nls_calendar=persian')) yy
+      FROM SHB.TBL_ORGAN_PAY_DTL
+      WHERE NATION_CODE = V_NATIONAL_CODE AND CREATED IS NOT NULL AND AMOUNT IS NOT NULL
+    );
+
+    IF V_TOTAL_YEARS > 0 THEN V_HAS_PAYMENT := 1; END IF;
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',سال‌های پرداخت:' || NVL(V_YEARS_STR, 'ناموجود') || ',تعداد سال‌ها:' || V_TOTAL_YEARS);
+  END IF;
+
+  ----------------------------------------------------------------------
+  -- ۵) سال‌های مالی موجود
+  ----------------------------------------------------------------------
+  BEGIN
+    SELECT LISTAGG(TO_CHAR(TITLE), ',') WITHIN GROUP (ORDER BY TITLE)
+      INTO V_FISCAL_YEARS
+    FROM SHB.TBL_FISCAL_YEAR;
+
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',سال‌های مالی موجود:' || NVL(V_FISCAL_YEARS, 'ناموجود'));
+  EXCEPTION WHEN OTHERS THEN
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطا در بررسی سال‌های مالی:' || SQLERRM);
+  END;
+
+  IF INSTR(V_FISCAL_YEARS, TO_CHAR(V_CURRENT_FISCAL_YEAR)) = 0 THEN
+    V_REASON := 'سال مالی جاری (' || TO_CHAR(V_CURRENT_FISCAL_YEAR) || ') در TBL_FISCAL_YEAR وجود ندارد';
+
+    SELECT SHB.MEMBER_STATUS_SUMMARY(
+      eligibility => 0,
+      total_amount => 0,
+      member_amount => 0,
+      org_amount => 0,
+      total_possible_amount => 0,
+      total_interest_amount => 0,
+      reason => V_REASON,
+      first_reg_year => V_FIRST_REG_YEAR,
+      debug_info => V_DEBUG_INFO,
+      yearly_interest => NULL,
+      yearly_membership_amount => NULL,
+      yearly_org_contribution => NULL,
+      rate => NULL,
+      exit_date => NULL
+    )
+    BULK COLLECT INTO rec FROM DUAL;
+
+    DBMS_LOB.FREETEMPORARY(V_DEBUG_INFO);
+    RETURN rec;
+  END IF;
+
+  ----------------------------------------------------------------------
+  -- ۶) وجود حداقل یک سال «پرداخت کامل»
+  ----------------------------------------------------------------------
+  BEGIN
+    SELECT COUNT(*) INTO V_FULL_PAYMENT_EXISTS
+    FROM (
+      SELECT TO_NUMBER(TO_CHAR(m.PAY_DATE,'YYYY','nls_calendar=persian')) amount_year,
+             SUM(m.AMOUNT_PAID) total_paid
+      FROM SHB.TBL_MEMBER_PAY_PERIODS m
+      WHERE m.PERSON_ID = P_ID
+        AND m.PAY_DATE IS NOT NULL
+        AND m.AMOUNT_PAID IS NOT NULL
+      GROUP BY TO_NUMBER(TO_CHAR(m.PAY_DATE,'YYYY','nls_calendar=persian'))
+    ) m
+    JOIN SHB.TBL_FISCAL_YEAR f
+      ON f.TITLE = m.amount_year
+    JOIN SHB.TBL_CONDITION_DTL cd
+      ON cd.FISCAL_YEAR_ID = f.ID AND cd.CONDITION_ID = 1033
+    LEFT JOIN SHB.TBL_CONDITION_DTL cd2
+      ON cd2.FISCAL_YEAR_ID = f.ID AND cd2.CONDITION_ID = 1053
+    WHERE m.total_paid >= cd.NUM_VALUE * (1 - NVL(cd2.NUM_VALUE/100, 0))
+      AND ROWNUM = 1;
+
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',وجود پرداخت کامل:' || V_FULL_PAYMENT_EXISTS);
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      V_FULL_PAYMENT_EXISTS := 0;
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',وجود پرداخت کامل:0');
+    WHEN OTHERS THEN
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطا در بررسی پرداخت کامل:' || SQLERRM);
+      V_FULL_PAYMENT_EXISTS := 0;
+  END;
+
+  IF V_HAS_PAYMENT = 0 THEN
+    V_REASON := 'هیچ پرداختی یافت نشد';
+    SELECT SHB.MEMBER_STATUS_SUMMARY(
+      eligibility => 0,
+      total_amount => 0,
+      member_amount => 0,
+      org_amount => 0,
+      total_possible_amount => 0,
+      total_interest_amount => 0,
+      reason => V_REASON,
+      first_reg_year => V_FIRST_REG_YEAR,
+      debug_info => V_DEBUG_INFO,
+      yearly_interest => NULL,
+      yearly_membership_amount => NULL,
+      yearly_org_contribution => NULL,
+      rate => NULL,
+      exit_date => NULL
+    )
+    BULK COLLECT INTO rec FROM DUAL;
+
+    DBMS_LOB.FREETEMPORARY(V_DEBUG_INFO);
+    RETURN rec;
+  END IF;
+
+  ----------------------------------------------------------------------
+  -- ۷) تاریخ پایه برای کات‌آف
+  ----------------------------------------------------------------------
+  BEGIN
+    SELECT MAX(CREATED) INTO V_EXIT_CREATED
+    FROM SHB.TBL_EXIT_HISTORY
+    WHERE PERSON_ID = P_ID;
+
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',تاریخ تسویه:' || NVL(TO_CHAR(V_EXIT_CREATED, 'YYYY/MM/DD HH24:MI:SS', 'nls_calendar=persian'), 'ناموجود') );
+  EXCEPTION WHEN OTHERS THEN
+    V_EXIT_CREATED := NULL;
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطا در خواندن TBL_EXIT_HISTORY:' || SQLERRM);
+  END;
+
+  IF V_EXIT_CREATED IS NULL THEN
+    BEGIN
+      SELECT NVL(MAX(dt), SYSDATE) INTO V_BASE_DATE
+      FROM (
+        SELECT PAY_DATE dt
+        FROM SHB.TBL_MEMBER_PAY_PERIODS
+        WHERE PERSON_ID = P_ID AND PAY_DATE IS NOT NULL AND AMOUNT_PAID IS NOT NULL
+        UNION ALL
+        SELECT CREATED
+        FROM SHB.TBL_ORGAN_PAY_DTL
+        WHERE NATION_CODE = V_NATIONAL_CODE AND CREATED IS NOT NULL AND AMOUNT IS NOT NULL
+      );
+
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',آخرین پرداخت:' || TO_CHAR(V_BASE_DATE, 'YYYY/MM/DD HH24:MI:SS', 'nls_calendar=persian'));
+    EXCEPTION WHEN OTHERS THEN
+      V_BASE_DATE := SYSDATE;
+      DBMS_LOB.APPEND(V_DEBUG_INFO, ',آخرین پرداخت:ناموجود, استفاده از تاریخ جاری');
+    END;
+  ELSE
+    V_BASE_DATE := V_EXIT_CREATED;
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',استفاده از تاریخ تسویه:' || TO_CHAR(V_BASE_DATE,'YYYY/MM/DD HH24:MI:SS','nls_calendar=persian'));
+  END IF;
+
+  -- ماه قبل و سال قبل
+  V_PREV_YEAR := TO_NUMBER(TO_CHAR(V_BASE_DATE, 'YYYY', 'nls_calendar=persian'));
+  V_PREV_MONTH := TO_NUMBER(TO_CHAR(V_BASE_DATE, 'MM' , 'nls_calendar=persian')) - 1;
+  IF V_PREV_MONTH = 0 THEN V_PREV_MONTH := 12; V_PREV_YEAR := V_PREV_YEAR - 1; END IF;
+
+  V_END_YEAR := V_PREV_YEAR;
+  V_END_MONTH := V_PREV_MONTH;
+
+  -- آخرین روز ماه جلالی
+  IF V_END_MONTH <= 6 THEN
+    V_LAST_DAY := 31;
+  ELSIF V_END_MONTH <= 11 THEN
+    V_LAST_DAY := 30;
+  ELSE
+    IF MOD(V_END_YEAR, 33) IN (1,5,9,13,17,22,26,30) THEN V_LAST_DAY := 30; ELSE V_LAST_DAY := 29; END IF;
+  END IF;
+
+  V_CUTOFF_DATE := TO_DATE( V_END_YEAR || '/' || LPAD(V_END_MONTH,2,'0') || '/' || LPAD(V_LAST_DAY,2,'0'),
+                            'YYYY/MM/DD', 'nls_calendar=persian' );
+
+  DBMS_LOB.APPEND(V_DEBUG_INFO, ',cutoff=' || TO_CHAR(V_CUTOFF_DATE,'YYYY/MM/DD','nls_calendar=persian')
+    || ',end_year=' || V_END_YEAR || ',end_month='|| V_END_MONTH
+    || CASE WHEN V_EXIT_CREATED IS NOT NULL THEN ',exit_found=Y' ELSE ',exit_found=N' END );
+
+  ----------------------------------------------------------------------
+  -- ۸) محاسبه سود و تجمیع‌ها
+  ----------------------------------------------------------------------
+  BEGIN
+    DBMS_LOB.CREATETEMPORARY(V_YEARLY_INTEREST_JSON, TRUE);
+    DBMS_LOB.APPEND(V_YEARLY_INTEREST_JSON, '[');
+    V_LAST_MEMBERSHIP_FEE := 0;
+    V_LAST_ORG_PERCENT := 0;
+    V_LAST_RATE := 4;
+
+    FOR year_rec IN (
+      SELECT TO_CHAR(f.TITLE) AS fiscal_year, f.ID AS fiscal_year_id
+      FROM SHB.TBL_FISCAL_YEAR f
+      WHERE (V_FIRST_REG_YEAR = 0 OR TO_NUMBER(f.TITLE) >= V_FIRST_REG_YEAR)
+        AND TO_NUMBER(f.TITLE) <= V_END_YEAR
+      ORDER BY TO_NUMBER(f.TITLE)
+    ) LOOP
+      DECLARE
+        TYPE t_payment IS RECORD (
+          deposit_type   VARCHAR2(12), -- MEMBER / ORG / PREV_MEMBER / PREV_ORG
+          deposit_date   DATE,
+          deposit_amount NUMBER,
+          deposit_month  NUMBER
+        );
+        TYPE t_payments IS TABLE OF t_payment;
+        V_PAYMENTS t_payments;
+
+        TYPE t_monthly IS RECORD (
+          month NUMBER,
+          full_days NUMBER,
+          member_amount NUMBER,
+          org_amount NUMBER,
+          membership_fee NUMBER,
+          member_payment NUMBER,
+          org_payment NUMBER,
+          member_interest NUMBER,
+          organ_interest NUMBER,
+          total_interest NUMBER
+        );
+        TYPE t_monthlies IS TABLE OF t_monthly;
+        V_MONTHLIES t_monthlies;
+
+        V_FISCAL_YEAR    VARCHAR2(4) := year_rec.fiscal_year;
+        V_FISCAL_YEAR_ID NUMBER      := year_rec.fiscal_year_id;
+
+        V_PREV_MEMBER NUMBER := cum_member;
+        V_PREV_ORG    NUMBER := cum_org;
+
+        V_MEMBERSHIP_FEE NUMBER;
+        V_ORG_PERCENT    NUMBER; -- 0..1
+        V_RATE           NUMBER; -- درصد سالانه
+
+        V_MEMBER_AMOUNT NUMBER;
+        V_ORG_AMOUNT    NUMBER;
+
+        V_INTEREST        NUMBER := 0;
+        V_MEMBER_INTEREST NUMBER := 0;
+        V_ORGAN_INTEREST  NUMBER := 0;
+
+        V_ACTUAL_MEMBER_PAID NUMBER := 0;
+        V_ACTUAL_ORG_PAID    NUMBER := 0;
+
+        current_member_balance NUMBER;
+        current_org_balance    NUMBER;
+        v_count NUMBER;
+        V_MAX_MONTH NUMBER := CASE WHEN TO_NUMBER(V_FISCAL_YEAR) = V_END_YEAR THEN V_END_MONTH ELSE 12 END;
+
+        v_temp CLOB;
+      BEGIN
+        IF TO_NUMBER(V_FISCAL_YEAR) > V_END_YEAR THEN CONTINUE; END IF;
+
+        DBMS_LOB.APPEND(V_DEBUG_INFO, ',محاسبه برای سال مالی:'||V_FISCAL_YEAR||',حداکثر ماه:'||V_MAX_MONTH);
+
+        -- شرط‌های سال
+        BEGIN
+          SELECT cd.NUM_VALUE, NVL(cd2.NUM_VALUE/100, 0), NVL(cd3.NUM_VALUE, 4)
+            INTO V_MEMBERSHIP_FEE, V_ORG_PERCENT, V_RATE
+          FROM SHB.TBL_CONDITION_DTL cd
+          LEFT JOIN SHB.TBL_CONDITION_DTL cd2
+            ON cd2.FISCAL_YEAR_ID = V_FISCAL_YEAR_ID AND cd2.CONDITION_ID = 1053
+          LEFT JOIN SHB.TBL_CONDITION_DTL cd3
+            ON cd3.FISCAL_YEAR_ID = V_FISCAL_YEAR_ID AND cd3.CONDITION_ID = 17
+          WHERE cd.FISCAL_YEAR_ID = V_FISCAL_YEAR_ID AND cd.CONDITION_ID = 1033;
+
+          V_LAST_MEMBERSHIP_FEE := V_MEMBERSHIP_FEE;
+          V_LAST_ORG_PERCENT    := V_ORG_PERCENT;
+          V_LAST_RATE           := V_RATE;
+        EXCEPTION WHEN NO_DATA_FOUND THEN
+          V_MEMBERSHIP_FEE := V_LAST_MEMBERSHIP_FEE;
+          V_ORG_PERCENT    := V_LAST_ORG_PERCENT;
+          V_RATE           := V_LAST_RATE;
+          DBMS_LOB.APPEND(V_DEBUG_INFO, ',شرایط برای سال '||V_FISCAL_YEAR||' یافت نشد, استفاده از شرایط سال قبل');
+        END;
+
+        V_MEMBER_AMOUNT := V_MEMBERSHIP_FEE * (1 - V_ORG_PERCENT);
+        V_ORG_AMOUNT    := V_MEMBERSHIP_FEE * V_ORG_PERCENT;
+
+        -- جمع پرداخت واقعی تا کات‌آف
+        SELECT NVL(SUM(m.AMOUNT_PAID),0) INTO V_ACTUAL_MEMBER_PAID
+        FROM SHB.TBL_MEMBER_PAY_PERIODS m
+        WHERE m.PERSON_ID = P_ID
+          AND m.AMOUNT_PAID IS NOT NULL
+          AND m.PAY_DATE IS NOT NULL
+          AND TO_NUMBER(TO_CHAR(m.PAY_DATE, 'YYYY', 'nls_calendar=persian')) = TO_NUMBER(V_FISCAL_YEAR)
+          AND m.PAY_DATE <= V_CUTOFF_DATE;
+
+        SELECT NVL(SUM(o.AMOUNT),0) INTO V_ACTUAL_ORG_PAID
+        FROM SHB.TBL_ORGAN_PAY_DTL o
+        WHERE o.NATION_CODE = V_NATIONAL_CODE
+          AND o.AMOUNT IS NOT NULL
+          AND o.CREATED IS NOT NULL
+          AND TO_NUMBER(TO_CHAR(o.CREATED, 'YYYY', 'nls_calendar=persian')) = TO_NUMBER(V_FISCAL_YEAR)
+          AND o.CREATED <= V_CUTOFF_DATE;
+
+        DBMS_LOB.APPEND(V_DEBUG_INFO, ',پرداخت عضو:'||V_ACTUAL_MEMBER_PAID||',پرداخت سازمان:'||V_ACTUAL_ORG_PAID);
+
+        -- لیست پرداخت‌ها (به‌همراه موجودی ابتدای سال)
+        SELECT * BULK COLLECT INTO V_PAYMENTS FROM (
+          SELECT 'MEMBER' AS deposit_type, m.PAY_DATE AS deposit_date, m.AMOUNT_PAID AS deposit_amount,
+                 TO_NUMBER(TO_CHAR(m.PAY_DATE,'MM','nls_calendar=persian')) AS deposit_month
+          FROM SHB.TBL_MEMBER_PAY_PERIODS m
+          WHERE m.PERSON_ID = P_ID AND m.AMOUNT_PAID IS NOT NULL AND m.PAY_DATE IS NOT NULL
+            AND TO_NUMBER(TO_CHAR(m.PAY_DATE,'YYYY','nls_calendar=persian')) = TO_NUMBER(V_FISCAL_YEAR)
+            AND m.PAY_DATE <= V_CUTOFF_DATE
+          UNION ALL
+          SELECT 'ORG', o.CREATED, o.AMOUNT, TO_NUMBER(TO_CHAR(o.CREATED,'MM','nls_calendar=persian'))
+          FROM SHB.TBL_ORGAN_PAY_DTL o
+          WHERE o.NATION_CODE = V_NATIONAL_CODE AND o.AMOUNT IS NOT NULL AND o.CREATED IS NOT NULL
+            AND TO_NUMBER(TO_CHAR(o.CREATED,'YYYY','nls_calendar=persian')) = TO_NUMBER(V_FISCAL_YEAR)
+            AND o.CREATED <= V_CUTOFF_DATE
+          UNION ALL
+          SELECT 'PREV_MEMBER', TO_DATE(V_FISCAL_YEAR||'/01/01','YYYY/MM/DD','nls_calendar=persian'), V_PREV_MEMBER, 1
+          FROM DUAL WHERE V_PREV_MEMBER > 0
+          UNION ALL
+          SELECT 'PREV_ORG', TO_DATE(V_FISCAL_YEAR||'/01/01','YYYY/MM/DD','nls_calendar=persian'), V_PREV_ORG, 1
+          FROM DUAL WHERE V_PREV_ORG > 0
+        );
+
+        -- جزئیات ماهانه تا ماه کات‌آف
+        SELECT month, full_days, member_amount, org_amount, membership_fee,
+               member_payment, org_payment, member_interest, organ_interest, total_interest
+        BULK COLLECT INTO V_MONTHLIES
+        FROM (
+          WITH months AS ( SELECT LEVEL AS month FROM DUAL CONNECT BY LEVEL <= V_MAX_MONTH ),
+          mc AS (
+            SELECT m.month, dd.deposit_type, dd.deposit_amount, dd.deposit_month, dd.deposit_date,
+                   V_RATE AS rate,
+                   CASE WHEN MOD(TO_NUMBER(V_FISCAL_YEAR),33) IN (1,5,9,13,17,22,26,30) THEN 36600 ELSE 36500 END AS base36500,
+                   CASE WHEN m.month <= 6 THEN 31 WHEN m.month <= 11 THEN 30
+                        WHEN MOD(TO_NUMBER(V_FISCAL_YEAR),33) IN (1,5,9,13,17,22,26,30) THEN 30 ELSE 29 END AS full_days,
+                   CASE
+                     WHEN m.month = dd.deposit_month
+                       THEN CASE
+                              WHEN dd.deposit_type IN ('PREV_MEMBER','PREV_ORG')
+                                THEN (CASE WHEN m.month <= 6 THEN 31 WHEN m.month <= 11 THEN 30
+                                           WHEN MOD(TO_NUMBER(V_FISCAL_YEAR),33) IN (1,5,9,13,17,22,26,30) THEN 30 ELSE 29 END)
+                              ELSE (CASE WHEN m.month <= 6 THEN 31 WHEN m.month <= 11 THEN 30
+                                         WHEN MOD(TO_NUMBER(V_FISCAL_YEAR),33) IN (1,5,9,13,17,22,26,30) THEN 30 ELSE 29 END
+                                    - TO_NUMBER(TO_CHAR(dd.deposit_date,'DD','nls_calendar=persian')) + 1)
+                            END
+                     WHEN m.month > dd.deposit_month
+                       THEN CASE WHEN m.month <= 6 THEN 31 WHEN m.month <= 11 THEN 30
+                                WHEN MOD(TO_NUMBER(V_FISCAL_YEAR),33) IN (1,5,9,13,17,22,26,30) THEN 30 ELSE 29 END
+                     ELSE 0
+                   END AS days_in_month,
+                   CASE WHEN dd.deposit_type LIKE 'PREV%' THEN 0
+                        WHEN m.month = dd.deposit_month THEN dd.deposit_amount ELSE 0 END AS monthly_payment
+            FROM (
+              SELECT 'MEMBER' deposit_type, NVL(m.PAY_DATE, TO_DATE(V_FISCAL_YEAR||'/01/01','YYYY/MM/DD','nls_calendar=persian')) deposit_date,
+                     m.AMOUNT_PAID deposit_amount,
+                     TO_NUMBER(TO_CHAR(NVL(m.PAY_DATE, TO_DATE(V_FISCAL_YEAR||'/01/01','YYYY/MM/DD','nls_calendar=persian')), 'MM','nls_calendar=persian')) deposit_month
+              FROM SHB.TBL_MEMBER_PAY_PERIODS m
+              WHERE m.PERSON_ID = P_ID AND m.AMOUNT_PAID IS NOT NULL AND m.PAY_DATE IS NOT NULL
+                AND TO_NUMBER(TO_CHAR(m.PAY_DATE,'YYYY','nls_calendar=persian')) = TO_NUMBER(V_FISCAL_YEAR)
+                AND m.PAY_DATE <= V_CUTOFF_DATE
+              UNION ALL
+              SELECT 'ORG', NVL(o.CREATED, TO_DATE(V_FISCAL_YEAR||'/01/01','YYYY/MM/DD','nls_calendar=persian')), o.AMOUNT,
+                     TO_NUMBER(TO_CHAR(NVL(o.CREATED, TO_DATE(V_FISCAL_YEAR||'/01/01','YYYY/MM/DD','nls_calendar=persian')), 'MM','nls_calendar=persian'))
+              FROM SHB.TBL_ORGAN_PAY_DTL o
+              WHERE o.NATION_CODE = V_NATIONAL_CODE AND o.AMOUNT IS NOT NULL AND o.CREATED IS NOT NULL
+                AND TO_NUMBER(TO_CHAR(o.CREATED,'YYYY','nls_calendar=persian')) = TO_NUMBER(V_FISCAL_YEAR)
+                AND o.CREATED <= V_CUTOFF_DATE
+              UNION ALL
+              SELECT 'PREV_MEMBER', TO_DATE(V_FISCAL_YEAR||'/01/01','YYYY/MM/DD','nls_calendar=persian'), V_PREV_MEMBER, 1 FROM DUAL WHERE V_PREV_MEMBER > 0
+              UNION ALL
+              SELECT 'PREV_ORG',    TO_DATE(V_FISCAL_YEAR||'/01/01','YYYY/MM/DD','nls_calendar=persian'), V_PREV_ORG,    1 FROM DUAL WHERE V_PREV_ORG > 0
+            ) dd
+            CROSS JOIN months m
+            WHERE m.month >= dd.deposit_month
+          ),
+          summed AS (
+            SELECT m.month,
+                   CASE WHEN m.month <= 6 THEN 31 WHEN m.month <= 11 THEN 30
+                        WHEN MOD(TO_NUMBER(V_FISCAL_YEAR),33) IN (1,5,9,13,17,22,26,30) THEN 30 ELSE 29 END AS full_days,
+                   V_MEMBER_AMOUNT AS member_amount,
+                   V_ORG_AMOUNT    AS org_amount,
+                   V_MEMBERSHIP_FEE AS membership_fee,
+                   NVL(SUM(CASE WHEN mc.deposit_type='MEMBER' THEN mc.monthly_payment ELSE 0 END),0) AS member_payment,
+                   NVL(SUM(CASE WHEN mc.deposit_type='ORG'    THEN mc.monthly_payment ELSE 0 END),0) AS org_payment,
+                   NVL(SUM(CASE WHEN mc.deposit_type IN ('MEMBER','PREV_MEMBER')
+                                THEN ROUND(mc.deposit_amount * mc.rate * mc.days_in_month / mc.base36500, 2) ELSE 0 END),0) AS member_interest,
+                   NVL(SUM(CASE WHEN mc.deposit_type IN ('ORG','PREV_ORG')
+                                THEN ROUND(mc.deposit_amount * mc.rate * mc.days_in_month / mc.base36500, 2) ELSE 0 END),0) AS organ_interest
+            FROM (SELECT LEVEL AS month FROM DUAL CONNECT BY LEVEL <= V_MAX_MONTH) m
+            LEFT JOIN mc ON mc.month = m.month
+            GROUP BY m.month
+          )
+          SELECT month, full_days, member_amount, org_amount, membership_fee,
+                 member_payment, org_payment,
+                 member_interest, organ_interest,
+                 (member_interest + organ_interest) AS total_interest
+          FROM summed
+          ORDER BY month
+        );
+
+        -- جمع سود سالانه
+        V_INTEREST := 0; V_MEMBER_INTEREST := 0; V_ORGAN_INTEREST := 0;
+        FOR i IN 1 .. V_MONTHLIES.COUNT LOOP
+          V_INTEREST := V_INTEREST + V_MONTHLIES(i).total_interest;
+          V_MEMBER_INTEREST := V_MEMBER_INTEREST + V_MONTHLIES(i).member_interest;
+          V_ORGAN_INTEREST  := V_ORGAN_INTEREST  + V_MONTHLIES(i).organ_interest;
+        END LOOP;
+
+        -- به‌روزرسانی تجمیع‌ها
+        V_TOTAL_MEMBER_AMOUNT   := V_TOTAL_MEMBER_AMOUNT   + V_ACTUAL_MEMBER_PAID;
+        V_TOTAL_ORG_AMOUNT      := V_TOTAL_ORG_AMOUNT      + V_ACTUAL_ORG_PAID;
+        V_TOTAL_INTEREST_AMOUNT := V_TOTAL_INTEREST_AMOUNT + V_INTEREST;
+
+        -- مانده‌های تجمیعی
+        cum_member := V_PREV_MEMBER + V_ACTUAL_MEMBER_PAID + V_MEMBER_INTEREST;
+        cum_org    := V_PREV_ORG    + V_ACTUAL_ORG_PAID    + V_ORGAN_INTEREST;
+
+        -- ساخت JSON سالانه
+        DBMS_LOB.CREATETEMPORARY(v_temp, TRUE);
+        DBMS_LOB.APPEND(v_temp, '{');
+        DBMS_LOB.APPEND(v_temp, '"year":"' || V_FISCAL_YEAR || '",');
+        DBMS_LOB.APPEND(v_temp, '"interest":' || TO_CHAR(V_INTEREST) || ',');
+        DBMS_LOB.APPEND(v_temp, '"rate":' || TO_CHAR(V_RATE) || ',');
+        DBMS_LOB.APPEND(v_temp, '"org_contribution_percent":' || TO_CHAR(V_ORG_PERCENT*100) || ',');
+        DBMS_LOB.APPEND(v_temp, '"member_contribution_percent":' || TO_CHAR((1-V_ORG_PERCENT)*100) || ',');
+        DBMS_LOB.APPEND(v_temp, '"org_contribution_amount":' || TO_CHAR(V_ORG_AMOUNT) || ',');
+        DBMS_LOB.APPEND(v_temp, '"member_contribution_amount":' || TO_CHAR(V_MEMBER_AMOUNT) || ',');
+        DBMS_LOB.APPEND(v_temp, '"membership_amount":' || TO_CHAR(V_MEMBER_AMOUNT) || ',');
+        DBMS_LOB.APPEND(v_temp, '"membership_fee":' || TO_CHAR(V_MEMBERSHIP_FEE) || ',');
+        DBMS_LOB.APPEND(v_temp, '"org_paid_amount":' || TO_CHAR(V_ACTUAL_ORG_PAID) || ',');
+        DBMS_LOB.APPEND(v_temp, '"member_paid_amount":' || TO_CHAR(V_ACTUAL_MEMBER_PAID) || ',');
+        DBMS_LOB.APPEND(v_temp, '"prev_member_amount":' || TO_CHAR(V_PREV_MEMBER) || ',');
+        DBMS_LOB.APPEND(v_temp, '"prev_org_amount":' || TO_CHAR(V_PREV_ORG) || ',');
+        DBMS_LOB.APPEND(v_temp, '"monthly_details":[');
+
+        current_member_balance := V_PREV_MEMBER;
+        current_org_balance    := V_PREV_ORG;
+
+        FOR i IN 1 .. V_MONTHLIES.COUNT LOOP
+          IF i > 1 THEN DBMS_LOB.APPEND(v_temp, ','); END IF;
+
+          DBMS_LOB.APPEND(v_temp, '{');
+          DBMS_LOB.APPEND(v_temp, '"month":' || V_MONTHLIES(i).month || ',');
+          DBMS_LOB.APPEND(v_temp, '"days":' || V_MONTHLIES(i).full_days || ',');
+          DBMS_LOB.APPEND(v_temp, '"member_amount":' || TO_CHAR(V_MONTHLIES(i).member_amount) || ',');
+          DBMS_LOB.APPEND(v_temp, '"org_amount":' || TO_CHAR(V_MONTHLIES(i).org_amount) || ',');
+          DBMS_LOB.APPEND(v_temp, '"membership_fee":' || TO_CHAR(V_MONTHLIES(i).membership_fee) || ',');
+          DBMS_LOB.APPEND(v_temp, '"member_payment":' || TO_CHAR(V_MONTHLIES(i).member_payment) || ',');
+          DBMS_LOB.APPEND(v_temp, '"org_payment":' || TO_CHAR(V_MONTHLIES(i).org_payment) || ',');
+          DBMS_LOB.APPEND(v_temp, '"member_interest":' || TO_CHAR(V_MONTHLIES(i).member_interest) || ',');
+          DBMS_LOB.APPEND(v_temp, '"organ_interest":' || TO_CHAR(V_MONTHLIES(i).organ_interest) || ',');
+          DBMS_LOB.APPEND(v_temp, '"total_interest":' || TO_CHAR(V_MONTHLIES(i).total_interest) || ',');
+          DBMS_LOB.APPEND(v_temp, '"prev_member_amount":' || TO_CHAR(current_member_balance) || ',');
+          DBMS_LOB.APPEND(v_temp, '"prev_org_amount":' || TO_CHAR(current_org_balance) || ',');
+
+          -- payments array
+          DBMS_LOB.APPEND(v_temp, '"payments":[');
+          v_count := 0;
+          FOR j IN 1 .. NVL(V_PAYMENTS.COUNT,0) LOOP
+            IF V_PAYMENTS(j).deposit_month = V_MONTHLIES(i).month THEN
+              IF v_count > 0 THEN DBMS_LOB.APPEND(v_temp, ','); END IF;
+              v_count := v_count + 1;
+              DBMS_LOB.APPEND(v_temp,
+                '{"type":"' || V_PAYMENTS(j).deposit_type
+                || '","date":' || CASE WHEN V_PAYMENTS(j).deposit_date IS NULL THEN 'null' ELSE '"'||TO_CHAR(V_PAYMENTS(j).deposit_date,'YYYY/MM/DD','nls_calendar=persian')||'"' END
+                || ',"amount":' || TO_CHAR(V_PAYMENTS(j).deposit_amount) || '}'
+              );
+            END IF;
+          END LOOP;
+          IF v_count = 0 THEN DBMS_LOB.APPEND(v_temp, '{"type":"none","date":null,"amount":0}'); END IF;
+          DBMS_LOB.APPEND(v_temp, ']'); -- payments
+          DBMS_LOB.APPEND(v_temp, '}');
+
+          -- مانده بعد از این ماه
+          current_member_balance := current_member_balance + V_MONTHLIES(i).member_payment + V_MONTHLIES(i).member_interest;
+          current_org_balance    := current_org_balance    + V_MONTHLIES(i).org_payment    + V_MONTHLIES(i).organ_interest;
+        END LOOP;
+
+        DBMS_LOB.APPEND(v_temp, ']}');
+
+        V_YEAR_COUNT := V_YEAR_COUNT + 1;
+        V_YEARLY_DATA(V_YEAR_COUNT) := v_temp;
+      END;
+    END LOOP;
+
+    -- مونتاژ JSON/خلاصه‌ها
+    FOR i IN 1 .. V_YEAR_COUNT LOOP
+      IF i > 1 THEN DBMS_LOB.APPEND(V_YEARLY_INTEREST_JSON, ','); END IF;
+      DBMS_LOB.APPEND(V_YEARLY_INTEREST_JSON, V_YEARLY_DATA(i));
+    END LOOP;
+    DBMS_LOB.APPEND(V_YEARLY_INTEREST_JSON, ']');
+
+    DBMS_LOB.CREATETEMPORARY(V_YEARLY_MEMBERSHIP_AMOUNT_JSON, TRUE);
+    DBMS_LOB.CREATETEMPORARY(V_YEARLY_ORG_CONTRIBUTION_JSON, TRUE);
+    DBMS_LOB.CREATETEMPORARY(V_RATE_JSON, TRUE);
+    DBMS_LOB.APPEND(V_YEARLY_MEMBERSHIP_AMOUNT_JSON, '[');
+    DBMS_LOB.APPEND(V_YEARLY_ORG_CONTRIBUTION_JSON, '[');
+    DBMS_LOB.APPEND(V_RATE_JSON, '[');
+
+    FOR i IN 1 .. V_YEAR_COUNT LOOP
+      DECLARE
+        v_year VARCHAR2(10);
+        v_mem  NUMBER;
+        v_org  NUMBER;
+        v_rate NUMBER;
+        tmp    CLOB := V_YEARLY_DATA(i);
+      BEGIN
+        v_year := REGEXP_SUBSTR(tmp, '"year":"([^"]+)"', 1, 1, NULL, 1);
+        v_mem  := TO_NUMBER(REGEXP_SUBSTR(tmp, '"member_paid_amount":([0-9.]+)', 1, 1, NULL, 1));
+        v_org  := TO_NUMBER(REGEXP_SUBSTR(tmp, '"org_paid_amount":([0-9.]+)', 1, 1, NULL, 1));
+        v_rate := TO_NUMBER(REGEXP_SUBSTR(tmp, '"rate":([0-9.]+)', 1, 1, NULL, 1));
+
+        IF i > 1 THEN
+          DBMS_LOB.APPEND(V_YEARLY_MEMBERSHIP_AMOUNT_JSON, ',');
+          DBMS_LOB.APPEND(V_YEARLY_ORG_CONTRIBUTION_JSON, ',');
+          DBMS_LOB.APPEND(V_RATE_JSON, ',');
+        END IF;
+
+        DBMS_LOB.APPEND(V_YEARLY_MEMBERSHIP_AMOUNT_JSON, '{"year":"' || v_year || '","membership_amount":' || NVL(v_mem,0) || '}');
+        DBMS_LOB.APPEND(V_YEARLY_ORG_CONTRIBUTION_JSON, '{"year":"' || v_year || '","org_contribution":' || NVL(v_org,0) || '}');
+        DBMS_LOB.APPEND(V_RATE_JSON, '{"year":"' || v_year || '","rate":' || NVL(v_rate,0) || '}');
+      EXCEPTION WHEN OTHERS THEN
+        DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطا در استخراج جزئیات سالانه['||i||']:'||SQLERRM);
+      END;
+    END LOOP;
+
+    DBMS_LOB.APPEND(V_YEARLY_MEMBERSHIP_AMOUNT_JSON, ']');
+    DBMS_LOB.APPEND(V_YEARLY_ORG_CONTRIBUTION_JSON, ']');
+    DBMS_LOB.APPEND(V_RATE_JSON, ']');
+
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',طول JSON سالانه:' || DBMS_LOB.GETLENGTH(V_YEARLY_INTEREST_JSON) || ',مجموع سود:' || V_TOTAL_INTEREST_AMOUNT );
+  EXCEPTION WHEN OTHERS THEN
+    DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطا در محاسبه سود:' || SQLERRM);
+    V_TOTAL_INTEREST_AMOUNT := 0;
+  END;
+
+  ----------------------------------------------------------------------
+  -- ۹) واجد شرایط بودن
+  ----------------------------------------------------------------------
+  IF V_TOTAL_YEARS < V_MINIMUM_YEARS THEN
+    V_ELIGIBILITY := 0; V_REASON := 'تعداد سال کمتر از ' || V_MINIMUM_YEARS || ' سال';
+  ELSIF V_FULL_PAYMENT_EXISTS = 0 THEN
+    V_ELIGIBILITY := 0; V_REASON := 'عدم پرداخت کامل حداقل یک سال';
+  ELSE
+    V_ELIGIBILITY := 1; V_REASON := 'واجد شرایط برای سود و وضعیت عضویت';
+  END IF;
+
+  ----------------------------------------------------------------------
+  -- ۱۰) بازگشت نتیجه
+  ----------------------------------------------------------------------
+  SELECT SHB.MEMBER_STATUS_SUMMARY(
+    eligibility => V_ELIGIBILITY,
+    total_amount => V_TOTAL_MEMBER_AMOUNT + V_TOTAL_ORG_AMOUNT + V_TOTAL_INTEREST_AMOUNT,
+    member_amount => V_TOTAL_MEMBER_AMOUNT,
+    org_amount => V_TOTAL_ORG_AMOUNT,
+    total_possible_amount => V_TOTAL_MEMBER_AMOUNT + V_TOTAL_ORG_AMOUNT + V_TOTAL_INTEREST_AMOUNT,
+    total_interest_amount => V_TOTAL_INTEREST_AMOUNT,
+    reason => V_REASON,
+    first_reg_year => V_FIRST_REG_YEAR,
+    debug_info => V_DEBUG_INFO,
+    yearly_interest => V_YEARLY_INTEREST_JSON,
+    yearly_membership_amount => V_YEARLY_MEMBERSHIP_AMOUNT_JSON,
+    yearly_org_contribution => V_YEARLY_ORG_CONTRIBUTION_JSON,
+    rate => V_RATE_JSON,
+    exit_date => V_EXIT_CREATED
+  )
+  BULK COLLECT INTO rec FROM DUAL;
+
+  -- آزادسازی LOBها
+  DBMS_LOB.FREETEMPORARY(V_DEBUG_INFO);
+  DBMS_LOB.FREETEMPORARY(V_YEARLY_INTEREST_JSON);
+  DBMS_LOB.FREETEMPORARY(V_YEARLY_MEMBERSHIP_AMOUNT_JSON);
+  DBMS_LOB.FREETEMPORARY(V_YEARLY_ORG_CONTRIBUTION_JSON);
+  DBMS_LOB.FREETEMPORARY(V_RATE_JSON);
+
+  RETURN rec;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    V_ERRMSG := SQLERRM;
+    BEGIN DBMS_LOB.APPEND(V_DEBUG_INFO, ',خطای غیرمنتظره:' || V_ERRMSG); EXCEPTION WHEN OTHERS THEN NULL; END;
+
+    DECLARE v_row SHB.MEMBER_STATUS_SUMMARY;
+    BEGIN
+      v_row := SHB.MEMBER_STATUS_SUMMARY(
+        eligibility => 0,
+        total_amount => 0,
+        member_amount => 0,
+        org_amount => 0,
+        total_possible_amount => 0,
+        total_interest_amount => 0,
+        reason => 'خطای غیرمنتظره: ' || V_ERRMSG,
+        first_reg_year => V_FIRST_REG_YEAR,
+        debug_info => V_DEBUG_INFO,
+        yearly_interest => NULL,
+        yearly_membership_amount => NULL,
+        yearly_org_contribution => NULL,
+        rate => NULL,
+        exit_date => V_EXIT_CREATED
+      );
+      rec := SHB.MEMBER_STATUS_SUMMARY_TBL(); rec.EXTEND(1); rec(1) := v_row;
+    END;
+
+    BEGIN DBMS_LOB.FREETEMPORARY(V_DEBUG_INFO); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN DBMS_LOB.FREETEMPORARY(V_YEARLY_INTEREST_JSON); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN DBMS_LOB.FREETEMPORARY(V_YEARLY_MEMBERSHIP_AMOUNT_JSON); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN DBMS_LOB.FREETEMPORARY(V_YEARLY_ORG_CONTRIBUTION_JSON); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN DBMS_LOB.FREETEMPORARY(V_RATE_JSON); EXCEPTION WHEN OTHERS THEN NULL; END;
+
+    RETURN rec;
+END FNC_GET_MEMBER_INTEREST_TBL;
+/
+
+prompt === Quick smoke test ===
+alter session set nls_calendar='PERSIAN';
+var pid number
+exec :pid := 9362;
+select * from table(SHB.FNC_GET_MEMBER_INTEREST_TBL(:pid));
+
+prompt === Report #1 (summary from yearly_interest JSON) ===
+var gl_person_id number
+exec :gl_person_id := 9362;
+
+SELECT 
+    y.id,
+    y.person_id,
+    y.exit_type,
+    y.status,
+    y.ok_jazb,
+    y.ok_mali,
+    y.created,
+    y.description,
+    TO_CHAR(jt.membership_fee, 'FM999,999,999,999') AS membership_fee,
+    TO_CHAR(jt.org_contribution_percent, 'FM999.00') AS org_contribution_percent,
+    TO_CHAR(jt.org_contribution_amount, 'FM999,999,999,999') AS org_contribution_amount,
+    TO_CHAR(jt.member_contribution_percent, 'FM999.00') AS member_contribution_percent,
+    TO_CHAR(jt.member_contribution_amount, 'FM999,999,999,999') AS member_contribution_amount,
+    TO_CHAR(jt.org_paid_amount, 'FM999,999,999,999') AS org_paid_amount,
+    TO_CHAR(jt.member_paid_amount, 'FM999,999,999,999') AS member_paid_amount,    
+    TO_CHAR(jt.rate, 'FM999') AS rate,
+    TO_CHAR(jt.interest, 'FM999,999,999,999') AS interest,
+    TO_CHAR(jt.interest + jt.org_paid_amount, 'FM999,999,999,999') AS profit,
+    TO_CHAR(jt.interest + jt.org_paid_amount + jt.member_paid_amount, 'FM999,999,999,999') AS total_amount
+FROM SHB.tbl_exit_history y,
+     (
+         SELECT 
+             SUM(jt.membership_fee) AS membership_fee,
+             ROUND(AVG(jt.org_contribution_percent), 2) AS org_contribution_percent,
+             SUM(jt.org_contribution_amount) AS org_contribution_amount,
+             ROUND(AVG(jt.member_contribution_percent), 2) AS member_contribution_percent,
+             SUM(jt.member_contribution_amount) AS member_contribution_amount,
+             SUM(jt.org_paid_amount) AS org_paid_amount,
+             SUM(jt.member_paid_amount) AS member_paid_amount,             
+             ROUND(AVG(jt.rate)) AS rate,
+             SUM(jt.interest) AS interest
+         FROM (
+             SELECT t.yearly_interest
+             FROM TABLE(SHB.FNC_GET_MEMBER_INTEREST_TBL(:gl_person_id)) t
+         ) t_outer,
+         JSON_TABLE (
+             t_outer.yearly_interest,
+             '$[*]' COLUMNS (
+                 membership_fee               NUMBER        PATH '$.membership_fee',
+                 org_contribution_percent     NUMBER        PATH '$.org_contribution_percent',
+                 org_contribution_amount      NUMBER        PATH '$.org_contribution_amount',
+                 member_contribution_percent  NUMBER        PATH '$.member_contribution_percent',
+                 member_contribution_amount   NUMBER        PATH '$.member_contribution_amount',
+                 org_paid_amount              NUMBER        PATH '$.org_paid_amount',
+                 member_paid_amount           NUMBER        PATH '$.member_paid_amount',                 
+                 rate                         NUMBER        PATH '$.rate',
+                 interest                     NUMBER        PATH '$.interest'
+             )
+         ) jt
+     ) jt
+WHERE y.person_id = TO_NUMBER(:gl_person_id);
+
+prompt === Report #2 (month-by-month) ===
+WITH src AS (
+  SELECT t.yearly_interest
+  FROM TABLE(SHB.FNC_GET_MEMBER_INTEREST_TBL(:gl_person_id)) t
+),
+flag AS (
+  SELECT CASE 
+           WHEN JSON_EXISTS(yearly_interest,
+                '$[*].monthly_details[*].payments[*]?(@.amount > 0)')
+           THEN 1 ELSE 0 
+         END AS has_pay,
+         yearly_interest
+  FROM src
+),
+bounds AS (
+  SELECT
+    MIN(TO_NUMBER(y) * 100 + m) AS min_key,
+    MAX(TO_NUMBER(y))           AS max_year
+  FROM flag f
+  CROSS JOIN JSON_TABLE(
+    f.yearly_interest,
+    '$[*]' COLUMNS (
+      y VARCHAR2(10) PATH '$.year',
+      NESTED PATH '$.monthly_details[*]' COLUMNS (
+        m NUMBER PATH '$.month',
+        NESTED PATH '$.payments[*]' COLUMNS ( amt NUMBER PATH '$.amount' )
+      )
+    )
+  ) pay
+  WHERE f.has_pay = 1
+    AND NVL(pay.amt,0) > 0
+)
+SELECT
+  "سال","ماه","تاریخ پرداخت","روزها",
+  "مبلغ عضویت","سهم عضو","سهم سازمان",
+  "مبلغ پرداختی عضو","مبلغ پرداختی سازمان",
+  "مبلغ قبلی عضو","مبلغ قبلی سازمان",
+  "سود عضو","سود سازمان","سود کل","وضعیت"
+FROM (
+  SELECT 
+      jm.year AS "سال",
+      CASE jm.month
+        WHEN 1 THEN 'فروردین' WHEN 2 THEN 'اردیبهشت' WHEN 3 THEN 'خرداد'
+        WHEN 4 THEN 'تیر'     WHEN 5 THEN 'مرداد'     WHEN 6 THEN 'شهریور'
+        WHEN 7 THEN 'مهر'     WHEN 8 THEN 'آبان'      WHEN 9 THEN 'آذر'
+        WHEN 10 THEN 'دی'     WHEN 11 THEN 'بهمن'     WHEN 12 THEN 'اسفند'
+      END AS "ماه",
+      CASE WHEN NVL(jp.payment_type,'none')='none' THEN NULL ELSE jp.payment_date END AS "تاریخ پرداخت",
+      TO_CHAR(jm.days, 'FM999') AS "روزها",
+      TO_CHAR(jm.membership_fee, 'FM999,999,999,999.00') AS "مبلغ عضویت",
+      TO_CHAR(jm.member_amount,  'FM999,999,999,999.00') AS "سهم عضو",
+      TO_CHAR(jm.org_amount,     'FM999,999,999,999.00') AS "سهم سازمان",
+      CASE WHEN jp.payment_type='MEMBER' THEN TO_CHAR(jp.payment_amount, 'FM999,999,999,999.00') ELSE '0.00' END AS "مبلغ پرداختی عضو",
+      CASE WHEN jp.payment_type='ORG'    THEN TO_CHAR(jp.payment_amount, 'FM999,999,999,999.00') ELSE '0.00' END AS "مبلغ پرداختی سازمان",
+      TO_CHAR(jm.prev_member_amount, 'FM999,999,999,999.00') AS "مبلغ قبلی عضو",
+      TO_CHAR(jm.prev_org_amount,    'FM999,999,999,999.00') AS "مبلغ قبلی سازمان",
+      TO_CHAR(
+        CASE WHEN jp.payment_type='ORG'
+             THEN ROUND(jm.prev_member_amount*jm.rate*jm.days /
+                        CASE WHEN MOD(TO_NUMBER(jm.year),33) IN (1,5,9,13,17,22,26,30) THEN 36600 ELSE 36500 END, 2)
+             ELSE jm.member_interest END,
+        'FM999,999,999,999.00') AS "سود عضو",
+      TO_CHAR(
+        CASE WHEN jp.payment_type='MEMBER'
+             THEN ROUND(jm.prev_org_amount*jm.rate*jm.days /
+                        CASE WHEN MOD(TO_NUMBER(jm.year),33) IN (1,5,9,13,17,22,26,30) THEN 36600 ELSE 36500 END, 2)
+             ELSE jm.organ_interest END,
+        'FM999,999,999,999.00') AS "سود سازمان",
+      TO_CHAR(
+        (
+          CASE WHEN jp.payment_type='ORG'
+               THEN ROUND(jm.prev_member_amount*jm.rate*jm.days /
+                          CASE WHEN MOD(TO_NUMBER(jm.year),33) IN (1,5,9,13,17,22,26,30) THEN 36600 ELSE 36500 END, 2)
+               ELSE jm.member_interest END
+        ) +
+        (
+          CASE WHEN jp.payment_type='MEMBER'
+               THEN ROUND(jm.prev_org_amount*jm.rate*jm.days /
+                          CASE WHEN MOD(TO_NUMBER(jm.year),33) IN (1,5,9,13,17,22,26,30) THEN 36600 ELSE 36500 END, 2)
+               ELSE jm.organ_interest END
+        ),
+        'FM999,999,999,999.00') AS "سود کل",
+      CAST(NULL AS VARCHAR2(200 CHAR)) AS "وضعیت",
+      TO_NUMBER(jm.year) AS y_sort,
+      jm.month           AS m_sort,
+      CASE WHEN NVL(jp.payment_type,'none')='none' THEN NULL
+           ELSE TO_DATE(jp.payment_date,'YYYY/MM/DD','nls_calendar=persian')
+      END AS d_sort
+  FROM flag f
+  CROSS JOIN JSON_TABLE(
+    f.yearly_interest,
+    '$[*]' COLUMNS (
+      year            VARCHAR2(10) PATH '$.year',
+      rate            NUMBER       PATH '$.rate',
+      membership_fee  NUMBER       PATH '$.membership_fee',
+      NESTED PATH '$.monthly_details[*]' COLUMNS (
+        month              NUMBER PATH '$.month',
+        days               NUMBER PATH '$.days',
+        member_amount      NUMBER PATH '$.member_amount',
+        org_amount         NUMBER PATH '$.org_amount',
+        member_interest    NUMBER PATH '$.member_interest',
+        organ_interest     NUMBER PATH '$.organ_interest',
+        total_interest     NUMBER PATH '$.total_interest',
+        prev_member_amount NUMBER PATH '$.prev_member_amount',
+        prev_org_amount    NUMBER PATH '$.prev_org_amount'
+      )
+    )
+  ) jm
+  LEFT JOIN JSON_TABLE(
+    f.yearly_interest,
+    '$[*]' COLUMNS (
+      year2 VARCHAR2(10) PATH '$.year',
+      NESTED PATH '$.monthly_details[*]' COLUMNS (
+        month2 NUMBER PATH '$.month',
+        NESTED PATH '$.payments[*]' COLUMNS (
+          payment_type   VARCHAR2(10) PATH '$.type',
+          payment_date   VARCHAR2(10) PATH '$.date',
+          payment_amount NUMBER       PATH '$.amount'
+        )
+      )
+    )
+  ) jp
+    ON jm.year  = jp.year2
+   AND jm.month = jp.month2
+  CROSS JOIN bounds b
+  WHERE f.has_pay = 1
+    AND (TO_NUMBER(jm.year)*100 + jm.month) >= b.min_key
+    AND TO_NUMBER(jm.year) <= b.max_year
+
+  UNION ALL
+
+  SELECT 
+    CAST(NULL AS VARCHAR2(10)),
+    CAST(NULL AS VARCHAR2(20)),
+    CAST(NULL AS VARCHAR2(10)),
+    CAST(NULL AS VARCHAR2(10)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST(NULL AS VARCHAR2(30)),
+    CAST('این عضو تاکنون هیچ پرداختی نداشته است' AS VARCHAR2(200 CHAR)) AS "وضعیت",
+    NULL, NULL, NULL
+  FROM flag
+  WHERE has_pay = 0
+) q
+ORDER BY q.y_sort, q.m_sort, q.d_sort;
+
+prompt === Done ===
